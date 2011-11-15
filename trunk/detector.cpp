@@ -14,6 +14,7 @@
 
 // Empirical constant 0.04-0.06
 #define K 0.06
+#define THRESHOLD 1000.0f
 
 using namespace std;
 using namespace cv;
@@ -38,7 +39,7 @@ int main(int argc, char* argv[]) {
             return EXIT_SUCCESS;
         } else {
             cerr << "Error: Unrecognized command line parameter \""
-                 << argv[ i] << "\" use -h to get more information." << endl;
+                 << argv[ i] << "\" use -h to get mo re information." << endl;
         }
     }
 
@@ -59,6 +60,7 @@ int main(int argc, char* argv[]) {
     Mat Iy(inputImage.rows, inputImage.cols, inputImage.depth());
     Mat outputImage(inputImage.rows, inputImage.cols, inputImage.depth());
     Mat cornerImage(inputImage.rows, inputImage.cols, inputImage.depth());
+    Mat cornerRImage(inputImage.rows, inputImage.cols, CV_32F);
 
 
     ////////////////////////////////////////////////////////////////////////////
@@ -70,7 +72,12 @@ int main(int argc, char* argv[]) {
     for (int i=0; i<inputImage.rows; i++) {
         for (int j=0; j<inputImage.cols; j++) {
             outputImage.at<uchar>(i,j) =
-                round(fabs(Ix.at<uchar>(i,j)) + fabs(Iy.at<uchar>(i, j)));
+                round(
+                    sqrt(
+                        Ix.at<uchar>(i,j) * Ix.at<uchar>(i,j) +
+                        Iy.at<uchar>(i,j) * Iy.at<uchar>(i,j)
+                    )
+                );
         }
     }
 
@@ -85,8 +92,8 @@ int main(int argc, char* argv[]) {
     Mat movementMatrix(4,4, CV_32F);
     for (int i=0; i<inputImage.rows; i++) {
         for (int j=0; j<inputImage.cols; j++) {
-            uint x = Ix.at<uchar>(j,i);
-            uint y = Ix.at<uchar>(j,i);
+            uint x = Ix.at<uchar>(i,j);
+            uint y = Ix.at<uchar>(i,j);
             uint xx = x * x;
             uint yy = y * y;
             uint xy = x * y;
@@ -111,10 +118,33 @@ int main(int argc, char* argv[]) {
 
             float R = fabs(det - K * tr * tr);
 
-            if (R > 1000.0f) {
-                //cout << R << endl;
-                counter++;
-                cornerImage.at<uchar>(j,i) = inputImage.at<uchar>(j,i);
+            cornerRImage.at<float>(i,j) = R;
+        }
+    }
+
+    // 8-point neighbourhood filtering
+    for (int i=1; i<cornerImage.rows-1; i++) {
+        for (int j=1; j<cornerImage.cols-1; j++) {
+            float center = cornerRImage.at<float>(i,j);
+            bool condition = true;
+
+            if (center > THRESHOLD) {
+                for (int m=-1; m<=1; m++) {
+                    for (int n=-1; n<=1; n++) {
+                        if (n == 0 && m == 0) continue;
+
+                        float neighbour = cornerRImage.at<float>(i+m,j+n);
+
+                        if (neighbour >= center) {
+                            condition = false;
+                        }
+                    }
+                }
+
+                if (condition) {
+                    counter++;
+                    cornerImage.at<uchar>(i,j) = inputImage.at<uchar>(i,j);
+                }
 
             }
         }
