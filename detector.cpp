@@ -13,10 +13,10 @@
  */
 
 // Empirical constant 0.04-0.06
-#define K 0.04
-#define THRESHOLD 10000.0f
-#define sigmaD 3.0
-#define sigmaI 3.0
+#define K 0.06
+#define THRESHOLD 100000.0f
+#define sigmaD 3
+#define sigmaI 3
 
 using namespace std;
 using namespace cv;
@@ -82,7 +82,7 @@ int main(int argc, char* argv[]) {
     Sobel(gaussianImage, Iy, gaussianImage.depth(), 1, 0, 3);
 
 
-    /*for (int i=0; i<inputImage.rows; i++) {
+    for (int i=0; i<inputImage.rows; i++) {
         for (int j=0; j<inputImage.cols; j++) {
             sobelImage.at<uchar>(i,j) =
                 round(
@@ -97,7 +97,7 @@ int main(int argc, char* argv[]) {
 
     imshow("Sobel", sobelImage);
     waitKey();
-    */
+
 
     ////////////////////////////////////////////////////////////////////////////
     // HARRIS CORNER DETECTOR
@@ -110,46 +110,37 @@ int main(int argc, char* argv[]) {
     int counter = 0;
     Mat movementMatrix(2,2, CV_32F);
 
-    uint* c = new uint[Gx.rows*Gx.cols];
+    uint* cornerR = new uint[Gx.rows*Gx.cols];
 
     for (int i=0; i<Gx.rows; i++) {
         for (int j=0; j<Gx.cols; j++) {
             uint x = Gx.at<uchar>(i,j);
             uint y = Gy.at<uchar>(i,j);
+
             uint xx = x * x;
             uint yy = y * y;
             uint xy = x * y;
 
-            movementMatrix.at<float>(0,0) = xx;
-            movementMatrix.at<float>(0,1) = xy;
-            movementMatrix.at<float>(1,0) = xy;
-            movementMatrix.at<float>(1,1) = yy;
+            xx *= sigmaD * sigmaD;
+            yy *= sigmaD * sigmaD;
+            xy *= sigmaD * sigmaD;
 
-            float det = determinant(movementMatrix);
-            Vec<float,4> tmp = trace(movementMatrix);
-            float tr = tmp[0];
+            uint det = xx*yy - xy*xy;
+            uint tr = xx + yy;
+            uint R = abs(det - K * tr * tr);
 
-
-            uint R = fabs(det - K * tr * tr);
-
-            c[i+j*cornerRImage.rows] = R;
+            cornerR[i+j*cornerRImage.rows] = R;
         }
     }
 
-    imshow("Gx", Gx);
-    imshow("R", cornerRImage);
-    waitKey();
-
     Mat cornerImage(grayImage.rows, grayImage.cols, grayImage.depth());
-
-    cout << cornerRImage.cols << " " << cornerRImage.rows << endl;
-    cout << cornerImage.cols << " " << cornerImage.rows << endl;
+    cornerImage.setTo(0);
 
     // 8-point neighbourhood filtering
     for (int i=1; i<cornerRImage.rows-1; i++) {
         for (int j=1; j<cornerRImage.cols-1; j++) {
 
-            uint center = c[i+j*cornerRImage.rows];
+            uint center = cornerR[i+j*cornerRImage.rows];
             bool condition = true;
 
             if (center > THRESHOLD) {
@@ -157,7 +148,7 @@ int main(int argc, char* argv[]) {
                     for (int n=-1; n<=1; n++) {
                         if (n == 0 && m == 0) continue;
 
-                        uint neighbour = c[i+m+(j+n)*cornerRImage.rows];
+                        uint neighbour = cornerR[i+m+(j+n)*cornerRImage.rows];
 
                         if (neighbour >= center) {
                             condition = false;
@@ -171,11 +162,10 @@ int main(int argc, char* argv[]) {
                 }
 
             }
-
         }
     }
 
-
+    delete [] cornerR;
 
     cout << counter << endl;
     //cout << cornerImage.depth() << endl;
