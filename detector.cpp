@@ -14,7 +14,9 @@
 
 // Empirical constant 0.04-0.06
 #define K 0.06
-#define THRESHOLD 1000.0f
+#define THRESHOLD 10000.0f
+#define sigmaD 3.0
+#define sigmaI 3.0
 
 using namespace std;
 using namespace cv;
@@ -58,20 +60,29 @@ int main(int argc, char* argv[]) {
 
     Mat Ix(inputImage.rows, inputImage.cols, inputImage.depth());
     Mat Iy(inputImage.rows, inputImage.cols, inputImage.depth());
-    Mat outputImage(inputImage.rows, inputImage.cols, inputImage.depth());
-    Mat cornerImage(inputImage.rows, inputImage.cols, inputImage.depth());
+
+    Mat Gx(inputImage.rows, inputImage.cols, CV_32F);
+    Mat Gy(inputImage.rows, inputImage.cols, CV_32F);
     Mat cornerRImage(inputImage.rows, inputImage.cols, CV_32F);
+
+    Mat sobelImage(inputImage.rows, inputImage.cols, inputImage.depth());
+    Mat cornerImage(inputImage.rows, inputImage.cols, inputImage.depth());
+
+    Mat gaussianImage(inputImage.rows, inputImage.cols, inputImage.depth());
 
 
     ////////////////////////////////////////////////////////////////////////////
     // SOBEL
     ////////////////////////////////////////////////////////////////////////////
-    Sobel(inputImage, Iy, inputImage.depth(), 1, 0, 3);
+    GaussianBlur(inputImage, inputImage, Size(3,3), sigmaD);
+
     Sobel(inputImage, Ix, inputImage.depth(), 0, 1, 3);
+    Sobel(inputImage, Iy, inputImage.depth(), 1, 0, 3);
+
 
     for (int i=0; i<inputImage.rows; i++) {
         for (int j=0; j<inputImage.cols; j++) {
-            outputImage.at<uchar>(i,j) =
+            sobelImage.at<uchar>(i,j) =
                 round(
                     sqrt(
                         Ix.at<uchar>(i,j) * Ix.at<uchar>(i,j) +
@@ -82,45 +93,50 @@ int main(int argc, char* argv[]) {
     }
 
 
-    imshow("Img", outputImage);
+    imshow("Sobel", sobelImage);
     waitKey();
+
 
     ////////////////////////////////////////////////////////////////////////////
     // HARRIS CORNER DETECTOR
     ////////////////////////////////////////////////////////////////////////////
+
+    GaussianBlur(Ix, Gx, Size(3,3), sigmaI);
+    GaussianBlur(Iy, Gy, Size(3,3), sigmaI);
+
+
     int counter = 0;
-    Mat movementMatrix(4,4, CV_32F);
-    for (int i=0; i<inputImage.rows; i++) {
-        for (int j=0; j<inputImage.cols; j++) {
-            uint x = Ix.at<uchar>(i,j);
-            uint y = Ix.at<uchar>(i,j);
-            uint xx = x * x;
-            uint yy = y * y;
-            uint xy = x * y;
+    Mat movementMatrix(2,2, CV_32F);
 
-            float kernelSum = 0.0f;
+    for (int i=0; i<Gx.rows; i++) {
+        for (int j=0; j<Gx.cols; j++) {
+            /*float x = Gx.at<float>(i,j);
+            float y  = Gy.at<float>(i,j);
+            float xx = x * x;
+            float yy = y * y;
+            float xy = x * y;
 
-            for (int m=0; m<5; m++) {
-                for (int n=0; n<5; n++) {
-                    kernelSum = kernelW(m,n, 5.0);
-                }
-            }
+            movementMatrix.at<float>(0,0) = xx;
+            movementMatrix.at<float>(0,1) = xy;
+            movementMatrix.at<float>(1,0) = xy;
+            movementMatrix.at<float>(1,1) = yy;
 
-            movementMatrix.at<float>(0,0) = xx * kernelSum;
-            movementMatrix.at<float>(0,1) = xy * kernelSum;
-            movementMatrix.at<float>(1,0) = xy * kernelSum;
-            movementMatrix.at<float>(1,1) = yy * kernelSum;
+            movementMatrix *= sigmaD * sigmaD;
 
             float det = determinant(movementMatrix);
             Vec<float,4> tmp = trace(movementMatrix);
             float tr = tmp[0];
 
 
-            float R = fabs(det - K * tr * tr);
+            float R = fabs(det - K * tr * tr);*/
 
-            cornerRImage.at<float>(i,j) = R;
+            cornerRImage.at<float>(i,j) = Gx.at<float>(i,j);
         }
     }
+
+    imshow("Gx", Gx);
+    imshow("R", cornerRImage);
+    waitKey();
 
     // 8-point neighbourhood filtering
     for (int i=1; i<cornerImage.rows-1; i++) {
@@ -136,7 +152,7 @@ int main(int argc, char* argv[]) {
                         float neighbour = cornerRImage.at<float>(i+m,j+n);
 
                         if (neighbour >= center) {
-                            condition = false;
+                            //condition = false;
                         }
                     }
                 }
@@ -150,10 +166,11 @@ int main(int argc, char* argv[]) {
         }
     }
 
+
+
     cout << counter << endl;
 
-    imshow("Img1", inputImage);
-    imshow("Img2", cornerImage);
+    imshow("Corners", cornerImage);
     waitKey();
 
     return EXIT_SUCCESS;
