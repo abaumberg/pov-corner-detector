@@ -14,7 +14,7 @@
 
 // Empirical constant 0.04-0.06
 #define K 0.04
-#define THRESHOLD 1e7
+#define THRESHOLD 127
 #define S 0.7
 #define epsilon 1.4
 
@@ -22,141 +22,49 @@
 using namespace std;
 using namespace cv;
 
-float kernelW(int x, int y, int sigma) {
-    int sigmaSqr = sigma * sigma;
-    int xSqr = x * x;
-    int ySqr = y * y;
-    return pow(M_E, -((xSqr + ySqr) / (2 * sigmaSqr))) / (2 * M_PI * sigmaSqr);
-}
+void detectCorners(Mat &src, Mat &dst, int blockSize, int kernelSize) {
 
-void HarrisDetector(Mat src, Mat &dst, float sigmaI, float sigmaD) {
+    Mat Ix, Iy, Ixx;
 
-    Mat Ix(src.rows, src.cols, src.depth());
-    Mat Iy(src.rows, src.cols, src.depth());
+    Sobel(src, Ix, CV_32F, 1, 0, kernelSize);
+    Sobel(src, Iy, CV_32F, 0, 1, kernelSize);
 
-    Mat Gx(src.rows, src.cols, src.depth());
-    Mat Gy(src.rows, src.cols, src.depth());
-    Mat Lx(src.rows, src.cols, src.depth());
-    Mat Ly(src.rows, src.cols, src.depth());
+    Size size = src.size();
+    Mat covariance( size, CV_32FC3 );
 
-    Mat laplacianImage(src.rows, src.cols, src.depth());
-    Mat cornerRImage(src.rows, src.cols, CV_16U);
+    for(int i=0; i<covariance.rows; i++ ) {
+        for(int j = 0; j<covariance.cols; j++ ) {
 
-    Mat sobelImage(src.rows, src.cols, src.depth());
+            float x = Ix.at<float>(i,j);
+            float y = Iy.at<float>(i,j);
 
-    Mat gaussianImage(src.rows, src.cols, src.depth());
+            Vec3f v;
+            v[0] = x*x;
+            v[1] = x*y;
+            v[2] = y*y;
 
-    ////////////////////////////////////////////////////////////////////////////
-    // SOBEL
-    ////////////////////////////////////////////////////////////////////////////
-    GaussianBlur(src, gaussianImage, Size(3,3), sigmaD);
-
-
-    Sobel(gaussianImage, Ix, gaussianImage.depth(), 0, 1, 3);
-    Sobel(gaussianImage, Iy, gaussianImage.depth(), 1, 0, 3);
-
-    /*for (int i=0; i<Ix.rows; i++) {
-        for (int j=0; j<Ix.cols; j++) {
-            sobelImage.at<uchar>(i,j) =
-            round(
-                sqrt(
-                    Ix.at<uchar>(i,j) * Ix.at<uchar>(i,j) +
-                    Iy.at<uchar>(i,j) * Iy.at<uchar>(i,j)
-                )
-            );
+            covariance.at<Vec3f>(i,j) = v;
         }
     }
 
+    boxFilter(covariance, covariance, covariance.depth(), Size(blockSize, blockSize));
 
-    imshow("Sobel", sobelImage);
-    waitKey();
-    */
-
-    ////////////////////////////////////////////////////////////////////////////
-    // HARRIS CORNER DETECTOR
-    ////////////////////////////////////////////////////////////////////////////
-
-    GaussianBlur(Ix, Gx, Size(3,3), sigmaI);
-    GaussianBlur(Iy, Gy, Size(3,3), sigmaI);
-    Laplacian(Ix, Lx, gaussianImage.depth(), 3);
-    Laplacian(Iy, Ly, gaussianImage.depth(), 3);
-
-
-    int counter = 0;
-    Mat movementMatrix(2,2, CV_32F);
-
-    uint* cornerR = new uint[Gx.rows*Gx.cols];
-    float* LoG = new float[Gx.rows*Gx.cols];
-
-    for (int i=0; i<Gx.rows; i++) {
-        for (int j=0; j<Gx.cols; j++) {
-            uint x = Gx.at<uchar>(i,j);
-            uint y = Gy.at<uchar>(i,j);
-
-            float xx = x * x;
-            float yy = y * y;
-            float xy = x * y;
-
-            xx *= sigmaD * sigmaD;
-            yy *= sigmaD * sigmaD;
-            xy *= sigmaD * sigmaD;
-
-            float det = xx*yy - xy*xy;
-            float tr = xx + yy;
-            uint R = round(fabs(det - K * tr * tr));
-
-            cornerR[i+j*Gx.rows] = R;
-
-            LoG[i+j*Gx.rows] =
-                sigmaI * sigmaI * abs(Lx.at<char>(i,j) + Ly.at<char>(i,j));
-            //laplacianImage.at<uchar>(i,j) =
-                //round();
-        }
+    if(covariance.isContinuous() && covariance.isContinuous()) {
+        size.width *= size.height;
+        size.height = 1;
     }
 
-    Mat cornerImage(src.rows, src.cols, src.depth());
-    cornerImage.setTo(0);
+    for(int i=0 ; i < covariance.rows; i++ ) {
+        for(int j = 0; j < covariance.cols; j++ ){
 
-    // 8-point neighbourhood filtering
-    for (int i=1; i<cornerRImage.rows-1; i++) {
-        for (int j=1; j<cornerRImage.cols-1; j++) {
-
-            uint center = cornerR[i+j*cornerRImage.rows];
-            bool condition = true;
-
-            if (center > THRESHOLD) {
-                for (int m=-1; m<=1; m++) {
-                    for (int n=-1; n<=1; n++) {
-                        if (n == 0 && m == 0) continue;
-
-                        uint neighbour = cornerR[i+m+(j+n)*cornerRImage.rows];
-
-                        if (neighbour >= center) {
-                            condition = false;
-                        }
-                    }
-                }
-
-                if (condition) {
-                    counter++;
-                    cornerImage.at<uchar>(i,j) = 255;
-                }
-
-            }
+            Vec3f v = covariance.at<Vec3f>(i,j);
+            v *= kernelSize * kernelSize;
+            float a = v[0];
+            float b = v[1];
+            float c = v[2];
+            dst.at<float>(i,j) = (float)(a*c - b*b - K*(a + c)*(a + c));
         }
     }
-
-    delete [] cornerR;
-    delete [] LoG;
-
-    cout << counter << endl;
-    //cout << cornerImage.depth() << endl;
-    //cout << inputImage.depth() << endl;
-
-    imshow("Corners", cornerImage);
-
-
-    waitKey();
 }
 
 int main(int argc, char* argv[]) {
@@ -190,14 +98,38 @@ int main(int argc, char* argv[]) {
     imshow("Img", grayImage);
     waitKey();
 
+    Mat dst, dst_norm, dst_norm_scaled;
+    dst = Mat::zeros( grayImage.size(), CV_32FC1 );
 
-    float sigma0 = 1.0f;
-    float sigmaI = sigma0;
-    float sigmaD = 0;
-    for (int i=0; i<10; i++) {
-        sigmaD = sigmaI * S;
-        HarrisDetector(grayImage, inputImage, sigmaI, sigmaD);
-        sigmaI *= epsilon;
+    /// Detector parameters
+
+    int apertureSize = 5;
+
+    for (float b=3; b<10; b++) {
+
+
+        //cout << "Scale: " << s << endl;
+        detectCorners(grayImage, dst, b, apertureSize);
+        //cornerHarris( grayImage, dst, b, apertureSize, k, BORDER_DEFAULT );
+
+        /// Normalizing
+        normalize( dst, dst_norm, 0, 255, NORM_MINMAX, CV_32FC1, Mat() );
+        convertScaleAbs( dst_norm, dst_norm_scaled );
+        int counter = 0;
+        Mat tmp = inputImage.clone();
+        for( int j = 0; j < dst_norm.rows ; j++ ) {
+            for( int i = 0; i < dst_norm.cols; i++ ) {
+                if( (int) dst_norm.at<float>(j,i) > THRESHOLD) {
+                    circle( tmp, Point( i, j ), 5,  Scalar(255, 0, 0), 2, 8, 0 );
+                    counter++;
+                }
+            }
+        }
+        cout << "Corners: " << counter << endl;
+        /// Showing the result
+        imshow("Corners", tmp );
+        waitKey();
+
     }
 
     return EXIT_SUCCESS;
