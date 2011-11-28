@@ -5,6 +5,7 @@
 #include <opencv2/features2d/features2d.hpp>
 #include <iostream>
 #include <sstream>
+#include "math.h"
 
 /**
  *
@@ -18,16 +19,40 @@
 #define S 0.7
 #define epsilon 1.4
 
+//double const Pi=4*atan(1);
+
 
 using namespace std;
 using namespace cv;
+
+float gaussianDerivate(int x, int y, float sigma) {
+	return (-x * pow(M_E, (-(x*x+y*y)/(2*sigma*sigma)) ))/(2* M_PI * pow(sigma,4));
+}
+
+Mat gaussianDerivateKernel(float sigma, bool direction = 0) {
+	int size = ceil(sigma)*2+1;
+	
+	Mat kernel(size, size, CV_32F);
+	
+	
+	for (int i = 0; i < size; i++) {
+		for (int j = 0; j < size; j++) {
+			kernel.at<float>(i,j) = (direction?gaussianDerivate(i-size/2,j-size/2,sigma):gaussianDerivate(j-size/2,i-size/2,sigma));
+		}
+	}
+	
+	return kernel;
+}
 
 void detectCorners(Mat &src, Mat &dst, int blockSize, int kernelSize) {
 
     Mat Ix, Iy, Ixx;
 
-    Sobel(src, Ix, CV_32F, 1, 0, kernelSize);
-    Sobel(src, Iy, CV_32F, 0, 1, kernelSize);
+    //Sobel(src, Ix, CV_32F, 1, 0, kernelSize);
+    //Sobel(src, Iy, CV_32F, 0, 1, kernelSize);
+    
+    filter2D(src, Ix, CV_32F, gaussianDerivateKernel(2));
+    filter2D(src, Iy, CV_32F, gaussianDerivateKernel(2,1));
 
     Size size = src.size();
     Mat covariance( size, CV_32FC3 );
@@ -90,6 +115,10 @@ int main(int argc, char* argv[]) {
              << endl;
         return EXIT_FAILURE;
     }
+    
+    /*Mat g_k = gaussianDerivateKernel(1,1);
+    
+    cout << g_k << endl;*/
 
     Mat inputImage = cvLoadImageM(inputImageName.c_str());
     Mat grayImage(inputImage.rows, inputImage.cols, 0);
