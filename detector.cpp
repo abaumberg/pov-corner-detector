@@ -31,28 +31,28 @@ float gaussianDerivate(int x, int y, float sigma) {
 
 Mat gaussianDerivateKernel(float sigma, bool direction = 0) {
 	int size = ceil(sigma)*2+1;
-	
+
 	Mat kernel(size, size, CV_32F);
-	
-	
+
+
 	for (int i = 0; i < size; i++) {
 		for (int j = 0; j < size; j++) {
 			kernel.at<float>(i,j) = (direction?gaussianDerivate(i-size/2,j-size/2,sigma):gaussianDerivate(j-size/2,i-size/2,sigma));
 		}
 	}
-	
+
 	return kernel;
 }
 
-void detectCorners(Mat &src, Mat &dst, int blockSize, int kernelSize) {
+void detectCorners(Mat &src, Mat &dst, float sigmaI, float sigmaD) {
 
     Mat Ix, Iy, Ixx;
 
     //Sobel(src, Ix, CV_32F, 1, 0, kernelSize);
     //Sobel(src, Iy, CV_32F, 0, 1, kernelSize);
-    
-    filter2D(src, Ix, CV_32F, gaussianDerivateKernel(2));
-    filter2D(src, Iy, CV_32F, gaussianDerivateKernel(2,1));
+
+    filter2D(src, Ix, CV_32F, gaussianDerivateKernel(sigmaD));
+    filter2D(src, Iy, CV_32F, gaussianDerivateKernel(sigmaD,1));
 
     Size size = src.size();
     Mat covariance( size, CV_32FC3 );
@@ -72,7 +72,10 @@ void detectCorners(Mat &src, Mat &dst, int blockSize, int kernelSize) {
         }
     }
 
-    boxFilter(covariance, covariance, covariance.depth(), Size(blockSize, blockSize));
+    int kernelSize = ceil(sigmaI) * 2 + 1;
+    Mat gaussKernel = getGaussianKernel(kernelSize, sigmaI);
+    filter2D(covariance, covariance, covariance.depth(), gaussKernel);
+    //boxFilter(covariance, covariance, covariance.depth(), Size(blockSize, blockSize));
 
     if(covariance.isContinuous() && covariance.isContinuous()) {
         size.width *= size.height;
@@ -83,13 +86,15 @@ void detectCorners(Mat &src, Mat &dst, int blockSize, int kernelSize) {
         for(int j = 0; j < covariance.cols; j++ ){
 
             Vec3f v = covariance.at<Vec3f>(i,j);
-            v *= kernelSize * kernelSize;
+            v *= sigmaD * sigmaD;
             float a = v[0];
             float b = v[1];
             float c = v[2];
             dst.at<float>(i,j) = (float)(a*c - b*b - K*(a + c)*(a + c));
         }
     }
+
+
 }
 
 int main(int argc, char* argv[]) {
@@ -115,9 +120,9 @@ int main(int argc, char* argv[]) {
              << endl;
         return EXIT_FAILURE;
     }
-    
+
     /*Mat g_k = gaussianDerivateKernel(1,1);
-    
+
     cout << g_k << endl;*/
 
     Mat inputImage = cvLoadImageM(inputImageName.c_str());
@@ -129,10 +134,10 @@ int main(int argc, char* argv[]) {
 
     Mat dst, dst_norm, dst_norm_scaled;
     dst = Mat::zeros( grayImage.size(), CV_32FC1 );
-
+    Mat corners = Mat::zeros( grayImage.size(), CV_32FC1 );
     /// Detector parameters
 
-    int apertureSize = 5;
+    float apertureSize = 2.5;
 
     for (float b=3; b<10; b++) {
 
@@ -145,20 +150,46 @@ int main(int argc, char* argv[]) {
         normalize( dst, dst_norm, 0, 255, NORM_MINMAX, CV_32FC1, Mat() );
         convertScaleAbs( dst_norm, dst_norm_scaled );
         int counter = 0;
-        Mat tmp = inputImage.clone();
+        Mat outputImage = inputImage.clone();
         for( int j = 0; j < dst_norm.rows ; j++ ) {
             for( int i = 0; i < dst_norm.cols; i++ ) {
                 if( (int) dst_norm.at<float>(j,i) > THRESHOLD) {
-                    circle( tmp, Point( i, j ), 5,  Scalar(255, 0, 0), 2, 8, 0 );
+                    circle(outputImage, Point(i, j), 5,  Scalar(255, 0, 0), 2, 8, 0 );
+                    corners.at<float>(j,i) = dst_norm.at<float>(j,i);
                     counter++;
                 }
             }
         }
-        cout << "Corners: " << counter << endl;
-        /// Showing the result
-        imshow("Corners", tmp );
-        waitKey();
+        cout << "Corners unfiltered: " << counter << endl;
 
+        counter = 0;
+        for (int i=1; i<dst.rows-1; i++) {
+            for (int j=1; j<dst.cols-1; j++) {
+                float center = corners.at<float>(i,j);
+                bool condition = true;
+
+                for (int m=-1; m<=1; m++) {
+                    for (int n=-1; n<=1; n++) {
+                        if (n == 0 && m == 0) continue;
+
+                        float neighbour = corners.at<float>(i+m,j+n);
+
+                        if (neighbour >= center) {
+                            condition = false;
+                        }
+                    }
+                }
+
+                if (condition) {
+                    counter++;
+                    circle(outputImage, Point(j, i), 5,  Scalar(0, 255, 0), 2, 8, 0);
+                }
+            }
+        }
+        /// Showing the result
+        imshow("Corners", outputImage );
+        cout << "Corners filtered: " << counter << endl;
+        waitKey();
     }
 
     return EXIT_SUCCESS;
