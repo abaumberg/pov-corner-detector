@@ -16,6 +16,7 @@
 // Empirical constant 0.04-0.06
 #define K 0.04
 #define THRESHOLD 127
+#define THRESHOLD2 10000.0
 #define S 0.7
 #define epsilon 1.4
 
@@ -97,6 +98,65 @@ void detectCorners(Mat &src, Mat &dst, float sigmaI, float sigmaD) {
 
 }
 
+void harrisDetector(Mat &src, Mat &dst, float sigmaI) {
+
+    Mat Ix, Iy, Ixx;
+
+    //Sobel(src, Ix, CV_32F, 1, 0, kernelSize);
+    //Sobel(src, Iy, CV_32F, 0, 1, kernelSize);
+
+    filter2D(src, Ix, CV_32F, gaussianDerivateKernel(sigmaI*0.7));
+    filter2D(src, Iy, CV_32F, gaussianDerivateKernel(sigmaI*0.7,1));
+    
+
+    Size size = src.size();
+    Mat covariance( size, CV_32FC3 );
+
+    for(int i=0; i<covariance.rows; i++ ) {
+        for(int j = 0; j<covariance.cols; j++ ) {
+
+            float x = Ix.at<float>(i,j);
+            float y = Iy.at<float>(i,j);
+
+            Vec3f v;
+            v[0] = x*x;
+            v[1] = x*y;
+            v[2] = y*y;
+
+            covariance.at<Vec3f>(i,j) = v;
+        }
+    }
+    
+    imshow("Cov", covariance);
+    
+    GaussianBlur(covariance, covariance, Size(0,0), sigmaI);
+    
+    imshow("Cov 2", covariance);
+
+	float min = FLT_MAX;
+	float max = FLT_MIN;
+    for(int i=0 ; i < covariance.rows; i++ ) {
+        for(int j = 0; j < covariance.cols; j++ ){
+
+            Vec3f v = covariance.at<Vec3f>(i,j);
+            v *= sigmaI * sigmaI * 0.7 * 0.7;
+            float a = v[0];
+            float b = v[1];
+            float c = v[2];
+            
+            dst.at<float>(i,j) = (float)(a*c - K*(a + c)*(a + c));
+            if (max < dst.at<float>(i,j)) {
+				cout << dst.at<float>(i,j) << ": " << a << "," << b << "," << c << endl;
+			}
+            
+            min = (min < dst.at<float>(i,j)?min:dst.at<float>(i,j));
+            max = (max < dst.at<float>(i,j)?dst.at<float>(i,j):max);
+        }
+    }
+    cout << sigmaI << ": " << min << " " << max << endl;
+    
+}
+
 int main(int argc, char* argv[]) {
 
     string inputImageName;
@@ -136,8 +196,56 @@ int main(int argc, char* argv[]) {
     dst = Mat::zeros( grayImage.size(), CV_32FC1 );
     Mat corners = Mat::zeros( grayImage.size(), CV_32FC1 );
     /// Detector parameters
+    
+    for (float b=0; b<10; b++) {
+		harrisDetector(grayImage, dst, pow(1.4,b));
+		normalize( dst, dst_norm, 0, 255, NORM_MINMAX, CV_32FC1, Mat() );
+		convertScaleAbs( dst_norm, dst_norm_scaled );
+		imshow("Dst", dst_norm_scaled);
+		
+			int counter = 0, counter2 = 0;
+			Mat outputImage = inputImage.clone();
+			for( int j = 0; j < dst.rows ; j++ ) {
+				for( int i = 0; i < dst.cols; i++ ) {
+					float cur_point = (float) dst.at<float>(j,i);
+					
+					if (cur_point > THRESHOLD2) {
+						circle(outputImage, Point(i,j), 5,  Scalar(255, 0, 0), 2, 8, 0 );
+						counter++;
+						
+						bool condition = true;
 
-    float apertureSize = 2.5;
+						for (int m=-1; m<=1; m++) {
+							for (int n=-1; n<=1; n++) {
+								if (n == 0 && m == 0) continue;
+
+								float neighbour = (float) dst.at<float>(j+m,i+n);
+
+								if (neighbour >= cur_point) {
+									condition = false;
+									break;
+								}
+							}
+							if (!condition) {
+								break;
+							}
+						}
+						
+						if (condition) {
+							counter2++;
+							circle(outputImage, Point(i,j), 5,  Scalar(0, 255, 0), 2, 8, 0);
+						}
+					}
+				}
+			}
+			cout << "Corners unfiltered: " << counter << endl;
+			cout << "Corners filtered: " << counter2 << endl;
+			
+			imshow("Corners", outputImage );
+			waitKey();
+		}
+
+    /*float apertureSize = 2.5;
 
     for (float b=3; b<10; b++) {
 
@@ -190,7 +298,7 @@ int main(int argc, char* argv[]) {
         imshow("Corners", outputImage );
         cout << "Corners filtered: " << counter << endl;
         waitKey();
-    }
+    }*/
 
     return EXIT_SUCCESS;
 }
