@@ -127,11 +127,7 @@ void harrisDetector(Mat &src, Mat &dst, float sigmaI) {
         }
     }
     
-    imshow("Cov", covariance);
-    
     GaussianBlur(covariance, covariance, Size(0,0), sigmaI);
-    
-    imshow("Cov 2", covariance);
 
 	float min = FLT_MAX;
 	float max = FLT_MIN;
@@ -144,10 +140,7 @@ void harrisDetector(Mat &src, Mat &dst, float sigmaI) {
             float b = v[1];
             float c = v[2];
             
-            dst.at<float>(i,j) = (float)(a*c - K*(a + c)*(a + c));
-            if (max < dst.at<float>(i,j)) {
-				cout << dst.at<float>(i,j) << ": " << a << "," << b << "," << c << endl;
-			}
+            dst.at<float>(i,j) = (float)(a*c -b*b- K*(a + c)*(a + c));
             
             min = (min < dst.at<float>(i,j)?min:dst.at<float>(i,j));
             max = (max < dst.at<float>(i,j)?dst.at<float>(i,j):max);
@@ -194,23 +187,24 @@ int main(int argc, char* argv[]) {
 
     Mat dst, dst_norm, dst_norm_scaled;
     dst = Mat::zeros( grayImage.size(), CV_32FC1 );
+    Mat cornerScales = Mat::zeros( grayImage.size(), CV_32FC1 );
     Mat corners = Mat::zeros( grayImage.size(), CV_32FC1 );
     /// Detector parameters
     
-    for (float b=0; b<10; b++) {
+	Mat outputImage = inputImage.clone();
+    for (float b=0; b<9; b++) {
 		harrisDetector(grayImage, dst, pow(1.4,b));
-		normalize( dst, dst_norm, 0, 255, NORM_MINMAX, CV_32FC1, Mat() );
-		convertScaleAbs( dst_norm, dst_norm_scaled );
-		imshow("Dst", dst_norm_scaled);
+		//normalize( dst, dst_norm, 0, 255, NORM_MINMAX, CV_32FC1, Mat() );
+		//convertScaleAbs( dst_norm, dst_norm_scaled );
+		//imshow("Dst", dst_norm_scaled);
 		
 			int counter = 0, counter2 = 0;
-			Mat outputImage = inputImage.clone();
 			for( int j = 0; j < dst.rows ; j++ ) {
 				for( int i = 0; i < dst.cols; i++ ) {
 					float cur_point = (float) dst.at<float>(j,i);
 					
 					if (cur_point > THRESHOLD2) {
-						circle(outputImage, Point(i,j), 5,  Scalar(255, 0, 0), 2, 8, 0 );
+						//circle(outputImage, Point(i,j), 5,  Scalar(255, 0, 0), 1, 8, 0 );
 						counter++;
 						
 						bool condition = true;
@@ -233,17 +227,35 @@ int main(int argc, char* argv[]) {
 						
 						if (condition) {
 							counter2++;
-							circle(outputImage, Point(i,j), 5,  Scalar(0, 255, 0), 2, 8, 0);
+							cornerScales.at<float>(j,i) = 3*pow(1.4,b);
+							
+							for (int m=-1; m<=1; m++) {
+								for (int n=-1; n<=1; n++) {
+									if (n == 0 && m == 0) continue;
+
+									cornerScales.at<float>(j+m,i+n) = 0;
+								}
+							}
 						}
 					}
 				}
 			}
 			cout << "Corners unfiltered: " << counter << endl;
 			cout << "Corners filtered: " << counter2 << endl;
-			
-			imshow("Corners", outputImage );
-			waitKey();
 		}
+		
+		
+	for( int j = 0; j < cornerScales.rows ; j++ ) {
+		for( int i = 0; i < cornerScales.cols; i++ ) {
+			if (cornerScales.at<float>(j,i) > 0) {
+				circle(outputImage, Point(i,j), cornerScales.at<float>(j,i),  Scalar(255-(int)3*cornerScales.at<float>(j,i), 0, (int)3*cornerScales.at<float>(j,i)), 2, 8, 0 );
+			}
+		}
+	}
+	
+	namedWindow("Corners", CV_WINDOW_NORMAL);		
+	imshow("Corners", outputImage );
+	waitKey();
 
     /*float apertureSize = 2.5;
 
