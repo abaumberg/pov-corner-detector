@@ -5,6 +5,8 @@
 #include <opencv2/features2d/features2d.hpp>
 #include <iostream>
 #include <sstream>
+#include <vector>
+#include <map>
 #include "math.h"
 
 /**
@@ -29,9 +31,10 @@
 
 //double const Pi=4*atan(1);
 
-
 using namespace std;
 using namespace cv;
+
+
 
 float gaussianDerivate(int x, int y, float sigma) {
 	return (-x * pow(M_E, (-(x*x+y*y)/(2*sigma*sigma)) ))/(2* M_PI * pow(sigma,4));
@@ -160,31 +163,49 @@ void harrisDetector(Mat &src, Mat &dst, float sigmaI, float *maxR) {
 
 float getLaplacian(Mat &src, int x, int y, float sigma0, float *maxR) {
 	Mat Ixx, Iyy;
-    
+
     float max = FLT_MIN;
-    
+
     float curLoG;
     float curSigma;
-    
+
     for (int i = 0; i < LAPLACE_S_COUNT; i++) {
 		curSigma = sigma0 * (LAPLACE_S_START + LAPLACE_S_STEP * i);
-		
+
 		filter2D(src, Ixx, CV_32F, gaussianDerivateKernel(curSigma));
 		filter2D(Ixx, Ixx, CV_32F, gaussianDerivateKernel(curSigma));
 		filter2D(src, Iyy, CV_32F, gaussianDerivateKernel(curSigma, 1));
 		filter2D(Iyy, Iyy, CV_32F, gaussianDerivateKernel(curSigma, 1));
-		
+
 		curLoG = curSigma*curSigma*abs(Ixx.at<float>(x,y)+Iyy.at<float>(x,y));
 		if (max < curLoG) {
 			max = curLoG;
 			*maxR = curSigma;
 		}
 	}
-    
+
     return max;
 }
 
 int main(int argc, char* argv[]) {
+
+    /*map<float, map<int, Point> > points;
+
+    float a = 0.0f;
+    int x = 1, y = 0;
+    int b = 0;
+    points[a] = map<int, Point>();
+
+    //b = x + width * y;
+
+    points[a][b] = Point(x,y);
+
+    map<int,Point>::iterator it;
+
+    for(it = points[a].begin(); it != points[a].end(); ++it) {
+        cout << (it->second).x << endl;
+    }
+    */
 
     string inputImageName;
 
@@ -287,7 +308,7 @@ int main(int argc, char* argv[]) {
 		}
 		cout << max << endl;
 	} while (countdown > 0);
-		
+
 		float Laplaci;
 		float sigmaX;
 	for( int j = 0; j < cornerScales.rows ; j++ ) {
@@ -296,7 +317,7 @@ int main(int argc, char* argv[]) {
 				Laplaci = getLaplacian(grayImage, j, i, cornerScales.at<float>(j,i), &sigmaX);
 				if (Laplaci > THRESHOLD_LAPLACE) {
 					cout << i << "," << j << ": " << cornerScales.at<float>(j,i) << " vs " << Laplaci << endl;
-					
+
 					circle(outputImage, Point(i,j), 3*sigmaX,  Scalar(255-(int)3*3*sigmaX, 0, (int)3*3*sigmaX), 2, 8, 0 );
 				}
 			}
