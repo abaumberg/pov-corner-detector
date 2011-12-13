@@ -107,7 +107,7 @@ void harrisDetector(Mat &src, Mat &dst, float sigmaI) {
 
     filter2D(src, Ix, CV_32F, gaussianDerivateKernel(sigmaI*0.7));
     filter2D(src, Iy, CV_32F, gaussianDerivateKernel(sigmaI*0.7,1));
-    
+
 
     Size size = src.size();
     Mat covariance( size, CV_32FC3 );
@@ -126,7 +126,7 @@ void harrisDetector(Mat &src, Mat &dst, float sigmaI) {
             covariance.at<Vec3f>(i,j) = v;
         }
     }
-    
+
     GaussianBlur(covariance, covariance, Size(0,0), sigmaI);
 
 	float min = FLT_MAX;
@@ -139,15 +139,15 @@ void harrisDetector(Mat &src, Mat &dst, float sigmaI) {
             float a = v[0];
             float b = v[1];
             float c = v[2];
-            
+
             dst.at<float>(i,j) = (float)(a*c -b*b- K*(a + c)*(a + c));
-            
+
             min = (min < dst.at<float>(i,j)?min:dst.at<float>(i,j));
             max = (max < dst.at<float>(i,j)?dst.at<float>(i,j):max);
         }
     }
     cout << sigmaI << ": " << min << " " << max << endl;
-    
+
 }
 
 int main(int argc, char* argv[]) {
@@ -190,23 +190,23 @@ int main(int argc, char* argv[]) {
     Mat cornerScales = Mat::zeros( grayImage.size(), CV_32FC1 );
     Mat corners = Mat::zeros( grayImage.size(), CV_32FC1 );
     /// Detector parameters
-    
+
 	Mat outputImage = inputImage.clone();
-    for (float b=0; b<9; b++) {
+    for (float b=0; b<30; b++) {
 		harrisDetector(grayImage, dst, pow(1.4,b));
 		//normalize( dst, dst_norm, 0, 255, NORM_MINMAX, CV_32FC1, Mat() );
 		//convertScaleAbs( dst_norm, dst_norm_scaled );
 		//imshow("Dst", dst_norm_scaled);
-		
+
 			int counter = 0, counter2 = 0;
 			for( int j = 0; j < dst.rows ; j++ ) {
 				for( int i = 0; i < dst.cols; i++ ) {
 					float cur_point = (float) dst.at<float>(j,i);
-					
+
 					if (cur_point > THRESHOLD2) {
 						//circle(outputImage, Point(i,j), 5,  Scalar(255, 0, 0), 1, 8, 0 );
 						counter++;
-						
+
 						bool condition = true;
 
 						for (int m=-1; m<=1; m++) {
@@ -224,11 +224,11 @@ int main(int argc, char* argv[]) {
 								break;
 							}
 						}
-						
+
 						if (condition) {
 							counter2++;
 							cornerScales.at<float>(j,i) = 3*pow(1.4,b);
-							
+
 							for (int m=-1; m<=1; m++) {
 								for (int n=-1; n<=1; n++) {
 									if (n == 0 && m == 0) continue;
@@ -243,8 +243,8 @@ int main(int argc, char* argv[]) {
 			cout << "Corners unfiltered: " << counter << endl;
 			cout << "Corners filtered: " << counter2 << endl;
 		}
-		
-		
+
+
 	for( int j = 0; j < cornerScales.rows ; j++ ) {
 		for( int i = 0; i < cornerScales.cols; i++ ) {
 			if (cornerScales.at<float>(j,i) > 0) {
@@ -252,8 +252,8 @@ int main(int argc, char* argv[]) {
 			}
 		}
 	}
-	
-	namedWindow("Corners", CV_WINDOW_NORMAL);		
+
+	namedWindow("Corners", CV_WINDOW_NORMAL);
 	imshow("Corners", outputImage );
 	waitKey();
 
