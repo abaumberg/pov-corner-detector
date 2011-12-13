@@ -14,11 +14,18 @@
  */
 
 // Empirical constant 0.04-0.06
-#define K 0.04
-#define THRESHOLD 127
-#define THRESHOLD2 10000.0
+#define K 0.06
+#define THRESHOLD_LAPLACE 10.0
+#define THRESHOLD_HARRIS 1500.0
 #define S 0.7
 #define epsilon 1.4
+
+#define S0 1.5
+#define COUNTDOWN 3
+
+#define LAPLACE_S_STEP 0.1
+#define LAPLACE_S_START 0.7
+#define LAPLACE_S_COUNT 8
 
 //double const Pi=4*atan(1);
 
@@ -98,15 +105,15 @@ void detectCorners(Mat &src, Mat &dst, float sigmaI, float sigmaD) {
 
 }
 
-void harrisDetector(Mat &src, Mat &dst, float sigmaI) {
+void harrisDetector(Mat &src, Mat &dst, float sigmaI, float *maxR) {
 
-    Mat Ix, Iy, Ixx;
+    Mat Ix, Iy;
 
     //Sobel(src, Ix, CV_32F, 1, 0, kernelSize);
     //Sobel(src, Iy, CV_32F, 0, 1, kernelSize);
 
-    filter2D(src, Ix, CV_32F, gaussianDerivateKernel(sigmaI*0.7));
-    filter2D(src, Iy, CV_32F, gaussianDerivateKernel(sigmaI*0.7,1));
+    filter2D(src, Ix, CV_32F, gaussianDerivateKernel(sigmaI * S));
+    filter2D(src, Iy, CV_32F, gaussianDerivateKernel(sigmaI * S, 1));
 
 
     Size size = src.size();
@@ -135,7 +142,7 @@ void harrisDetector(Mat &src, Mat &dst, float sigmaI) {
         for(int j = 0; j < covariance.cols; j++ ){
 
             Vec3f v = covariance.at<Vec3f>(i,j);
-            v *= sigmaI * sigmaI * 0.7 * 0.7;
+            v *= sigmaI * sigmaI * S * S;
             float a = v[0];
             float b = v[1];
             float c = v[2];
@@ -148,6 +155,33 @@ void harrisDetector(Mat &src, Mat &dst, float sigmaI) {
     }
     cout << sigmaI << ": " << min << " " << max << endl;
 
+    *maxR = max;
+}
+
+float getLaplacian(Mat &src, int x, int y, float sigma0, float *maxR) {
+	Mat Ixx, Iyy;
+    
+    float max = FLT_MIN;
+    
+    float curLoG;
+    float curSigma;
+    
+    for (int i = 0; i < LAPLACE_S_COUNT; i++) {
+		curSigma = sigma0 * (LAPLACE_S_START + LAPLACE_S_STEP * i);
+		
+		filter2D(src, Ixx, CV_32F, gaussianDerivateKernel(curSigma));
+		filter2D(Ixx, Ixx, CV_32F, gaussianDerivateKernel(curSigma));
+		filter2D(src, Iyy, CV_32F, gaussianDerivateKernel(curSigma, 1));
+		filter2D(Iyy, Iyy, CV_32F, gaussianDerivateKernel(curSigma, 1));
+		
+		curLoG = curSigma*curSigma*abs(Ixx.at<float>(x,y)+Iyy.at<float>(x,y));
+		if (max < curLoG) {
+			max = curLoG;
+			*maxR = curSigma;
+		}
+	}
+    
+    return max;
 }
 
 int main(int argc, char* argv[]) {
@@ -192,8 +226,11 @@ int main(int argc, char* argv[]) {
     /// Detector parameters
 
 	Mat outputImage = inputImage.clone();
-    for (float b=0; b<30; b++) {
-		harrisDetector(grayImage, dst, pow(1.4,b));
+	float max;
+	float s = 1.5;
+	int countdown = COUNTDOWN;
+    do {
+		harrisDetector(grayImage, dst, s, &max);
 		//normalize( dst, dst_norm, 0, 255, NORM_MINMAX, CV_32FC1, Mat() );
 		//convertScaleAbs( dst_norm, dst_norm_scaled );
 		//imshow("Dst", dst_norm_scaled);
@@ -203,7 +240,7 @@ int main(int argc, char* argv[]) {
 				for( int i = 0; i < dst.cols; i++ ) {
 					float cur_point = (float) dst.at<float>(j,i);
 
-					if (cur_point > THRESHOLD2) {
+					if (cur_point > THRESHOLD_HARRIS) {
 						//circle(outputImage, Point(i,j), 5,  Scalar(255, 0, 0), 1, 8, 0 );
 						counter++;
 
@@ -227,13 +264,13 @@ int main(int argc, char* argv[]) {
 
 						if (condition) {
 							counter2++;
-							cornerScales.at<float>(j,i) = 3*pow(1.4,b);
+							cornerScales.at<float>(j,i) = s;
 
 							for (int m=-1; m<=1; m++) {
 								for (int n=-1; n<=1; n++) {
 									if (n == 0 && m == 0) continue;
 
-									cornerScales.at<float>(j+m,i+n) = 0;
+									//cornerScales.at<float>(j+m,i+n) = 0;
 								}
 							}
 						}
@@ -242,13 +279,26 @@ int main(int argc, char* argv[]) {
 			}
 			cout << "Corners unfiltered: " << counter << endl;
 			cout << "Corners filtered: " << counter2 << endl;
+		s *= epsilon;
+		if (max > THRESHOLD_HARRIS) {
+			countdown = COUNTDOWN;
+		} else {
+			countdown -= 1;
 		}
-
-
+		cout << max << endl;
+	} while (countdown > 0);
+		
+		float Laplaci;
+		float sigmaX;
 	for( int j = 0; j < cornerScales.rows ; j++ ) {
 		for( int i = 0; i < cornerScales.cols; i++ ) {
 			if (cornerScales.at<float>(j,i) > 0) {
-				circle(outputImage, Point(i,j), cornerScales.at<float>(j,i),  Scalar(255-(int)3*cornerScales.at<float>(j,i), 0, (int)3*cornerScales.at<float>(j,i)), 2, 8, 0 );
+				Laplaci = getLaplacian(grayImage, j, i, cornerScales.at<float>(j,i), &sigmaX);
+				if (Laplaci > THRESHOLD_LAPLACE) {
+					cout << i << "," << j << ": " << cornerScales.at<float>(j,i) << " vs " << Laplaci << endl;
+					
+					circle(outputImage, Point(i,j), 3*sigmaX,  Scalar(255-(int)3*3*sigmaX, 0, (int)3*3*sigmaX), 2, 8, 0 );
+				}
 			}
 		}
 	}
@@ -256,61 +306,6 @@ int main(int argc, char* argv[]) {
 	namedWindow("Corners", CV_WINDOW_NORMAL);
 	imshow("Corners", outputImage );
 	waitKey();
-
-    /*float apertureSize = 2.5;
-
-    for (float b=3; b<10; b++) {
-
-
-        //cout << "Scale: " << s << endl;
-        detectCorners(grayImage, dst, b, apertureSize);
-        //cornerHarris( grayImage, dst, b, apertureSize, k, BORDER_DEFAULT );
-
-        /// Normalizing
-        normalize( dst, dst_norm, 0, 255, NORM_MINMAX, CV_32FC1, Mat() );
-        convertScaleAbs( dst_norm, dst_norm_scaled );
-        int counter = 0;
-        Mat outputImage = inputImage.clone();
-        for( int j = 0; j < dst_norm.rows ; j++ ) {
-            for( int i = 0; i < dst_norm.cols; i++ ) {
-                if( (int) dst_norm.at<float>(j,i) > THRESHOLD) {
-                    circle(outputImage, Point(i, j), 5,  Scalar(255, 0, 0), 2, 8, 0 );
-                    corners.at<float>(j,i) = dst_norm.at<float>(j,i);
-                    counter++;
-                }
-            }
-        }
-        cout << "Corners unfiltered: " << counter << endl;
-
-        counter = 0;
-        for (int i=1; i<dst.rows-1; i++) {
-            for (int j=1; j<dst.cols-1; j++) {
-                float center = corners.at<float>(i,j);
-                bool condition = true;
-
-                for (int m=-1; m<=1; m++) {
-                    for (int n=-1; n<=1; n++) {
-                        if (n == 0 && m == 0) continue;
-
-                        float neighbour = corners.at<float>(i+m,j+n);
-
-                        if (neighbour >= center) {
-                            condition = false;
-                        }
-                    }
-                }
-
-                if (condition) {
-                    counter++;
-                    circle(outputImage, Point(j, i), 5,  Scalar(0, 255, 0), 2, 8, 0);
-                }
-            }
-        }
-        /// Showing the result
-        imshow("Corners", outputImage );
-        cout << "Corners filtered: " << counter << endl;
-        waitKey();
-    }*/
 
     return EXIT_SUCCESS;
 }
